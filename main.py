@@ -390,6 +390,65 @@ def classify_gesture(landmarks):
 
 
 # ============================================================
+# HAND POSITION TRACKING
+# ============================================================
+
+def get_hand_position(landmarks):
+    """
+    Return the palm's normalized coordinates and grid regions.
+
+    Landmark 9 is the middle finger MCP (knuckle at its base).
+    Keep x and y unchanged so they can later be continuous controls.
+    """
+
+    palm_x = landmarks[9].x
+    palm_y = landmarks[9].y
+
+    if palm_x < 0.33:
+        horizontal_position = "LEFT"
+    elif palm_x > 0.66:
+        horizontal_position = "RIGHT"
+    else:
+        horizontal_position = "CENTER"
+
+    # Image y coordinates increase from the top toward the bottom.
+    if palm_y < 0.33:
+        vertical_position = "UP"
+    elif palm_y > 0.66:
+        vertical_position = "DOWN"
+    else:
+        vertical_position = "CENTER"
+
+    return {
+        "x": palm_x,
+        "y": palm_y,
+        "horizontal": horizontal_position,
+        "vertical": vertical_position
+    }
+
+
+def draw_control_grid(frame):
+    """
+    Draw thin, muted guides using the same boundaries as tracking.
+    """
+
+    height, width, _ = frame.shape
+
+    for boundary in (0.33, 0.66):
+
+        x = int(boundary * width)
+        y = int(boundary * height)
+
+        cv2.line(
+            frame, (x, 0), (x, height - 1), (100, 100, 100), 1
+        )
+
+        cv2.line(
+            frame, (0, y), (width - 1, y), (100, 100, 100), 1
+        )
+
+
+# ============================================================
 # DRAW HAND LANDMARKS
 # ============================================================
 
@@ -433,6 +492,16 @@ def draw_hand(frame, landmarks):
             (255, 255, 255),
             2
         )
+
+    # Highlight the controller point before drawing landmark labels.
+    # Multiplying normalized coordinates by frame size gives pixels.
+    palm_point = (
+        int(landmarks[9].x * width),
+        int(landmarks[9].y * height)
+    )
+
+    cv2.circle(frame, palm_point, 12, (0, 0, 0), 5)
+    cv2.circle(frame, palm_point, 12, (0, 165, 255), 3)
 
     # ---------------------------------------------------------
     # Draw individual landmarks
@@ -624,6 +693,13 @@ def main():
 
             detected_gesture = "NO HAND"
 
+            # Reset every frame so a missing hand never leaves stale values.
+            hand_position = None
+
+            # Draw only after detection, keeping guides out of model input.
+            # The skeleton and palm marker are drawn on top of the grid.
+            draw_control_grid(frame)
+
             # -------------------------------------------------
             # Process detected hand
             # -------------------------------------------------
@@ -633,6 +709,8 @@ def main():
                 landmarks = (
                     result.hand_landmarks[0]
                 )
+
+                hand_position = get_hand_position(landmarks)
 
                 # Draw hand skeleton
                 draw_hand(
@@ -674,33 +752,42 @@ def main():
             # Display information
             # -------------------------------------------------
 
-            cv2.rectangle(
-                frame,
-                (0, 0),
-                (640, 90),
-                (0, 0, 0),
-                -1
-            )
+            # Round only the displayed text; keep full precision in the dict.
+            if hand_position is not None:
+                hand_x_text = f"{hand_position['x']:.2f}"
+                hand_y_text = f"{hand_position['y']:.2f}"
+                horizontal_text = hand_position["horizontal"]
+                vertical_text = hand_position["vertical"]
+            else:
+                hand_x_text = "-"
+                hand_y_text = "-"
+                horizontal_text = "-"
+                vertical_text = "-"
 
-            cv2.putText(
-                frame,
+            information = [
                 f"Gesture: {detected_gesture}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 255, 0),
-                2
-            )
+                f"Hand X: {hand_x_text}",
+                f"Hand Y: {hand_y_text}",
+                f"Horizontal: {horizontal_text}",
+                f"Vertical: {vertical_text}",
+                f"FPS: {fps:.1f}"
+            ]
 
-            cv2.putText(
-                frame,
-                f"FPS: {fps:.1f}",
-                (20, 75),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (255, 255, 255),
-                2
-            )
+            for index, text in enumerate(information):
+                text_position = (20, 30 + index * 26)
+                color = (0, 255, 0) if index == 0 else (255, 255, 255)
+
+                # A black outline keeps text readable without a solid panel
+                # covering the hand or the control grid.
+                cv2.putText(
+                    frame, text, text_position,
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 4
+                )
+
+                cv2.putText(
+                    frame, text, text_position,
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1
+                )
 
             cv2.imshow(
                 "Space Gesture Controller - Phase 1",
