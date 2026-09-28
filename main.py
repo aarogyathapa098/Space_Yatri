@@ -195,51 +195,81 @@ def is_thumb_extended(landmarks):
     """
     Detect whether the thumb is extended.
 
-    Thumb landmarks:
-
-        1 = CMC
-        2 = MCP
-        3 = IP
-        4 = TIP
-
-    The thumb behaves differently from the other four fingers,
-    so it requires separate logic.
+    The thumb is considered extended when:
+    1. It is reasonably straight.
+    2. The thumb tip is separated from the index finger.
+    3. The thumb tip extends farther away than the thumb IP joint.
     """
+
+    wrist = landmarks[0]
 
     thumb_mcp = landmarks[2]
     thumb_ip = landmarks[3]
     thumb_tip = landmarks[4]
 
     index_mcp = landmarks[5]
-    wrist = landmarks[0]
     middle_mcp = landmarks[9]
 
-    # Check whether thumb itself is relatively straight
+    # ---------------------------------------------------------
+    # 1. Check whether the thumb itself is straight
+    # ---------------------------------------------------------
+
     thumb_angle = calculate_angle(
         thumb_mcp,
         thumb_ip,
         thumb_tip
     )
 
-    # Estimate hand size
+    # ---------------------------------------------------------
+    # 2. Estimate hand size
+    # ---------------------------------------------------------
+
     palm_size = distance(
         wrist,
         middle_mcp
     )
 
-    # Check how far the thumb is from the index finger
+    # ---------------------------------------------------------
+    # 3. Check how far the thumb is from the hand
+    # ---------------------------------------------------------
+
     thumb_separation = distance(
         thumb_tip,
         index_mcp
     )
 
-    thumb_is_straight = thumb_angle > 150
+    # ---------------------------------------------------------
+    # 4. Check whether thumb tip extends outward
+    # ---------------------------------------------------------
 
-    thumb_is_away_from_hand = (
-        thumb_separation > palm_size * 0.65
+    thumb_tip_distance = distance(
+        thumb_tip,
+        wrist
     )
 
-    return thumb_is_straight and thumb_is_away_from_hand
+    thumb_ip_distance = distance(
+        thumb_ip,
+        wrist
+    )
+
+    # More forgiving than the old 150-degree threshold
+    thumb_is_straight = thumb_angle > 135
+
+    # More forgiving than the old 0.65 threshold
+    thumb_is_away_from_hand = (
+        thumb_separation > palm_size * 0.45
+    )
+
+    thumb_tip_is_outward = (
+        thumb_tip_distance >
+        thumb_ip_distance * 1.05
+    )
+
+    return (
+        thumb_is_straight
+        and thumb_is_away_from_hand
+        and thumb_tip_is_outward
+    )
 
 
 # ============================================================
@@ -349,42 +379,30 @@ def classify_gesture(landmarks):
 
     if not any(fingers):
 
-        if thumb_extended:
+      if thumb_extended:
 
-            thumb_tip = landmarks[4]
-            thumb_ip = landmarks[3]
+        thumb_tip = landmarks[4]
+        thumb_ip = landmarks[3]
 
-            wrist = landmarks[0]
-            middle_mcp = landmarks[9]
+        wrist = landmarks[0]
+        middle_mcp = landmarks[9]
 
-            palm_size = distance(
-                wrist,
-                middle_mcp
-            )
+        palm_size = distance(
+            wrist,
+            middle_mcp
+        )
 
-            # OpenCV image coordinates:
-            #
-            # y = 0
-            # ↑ top
-            #
-            # ↓ bottom
-            #
-            # Therefore:
-            # smaller y = higher position
+        vertical_difference = (
+            thumb_ip.y - thumb_tip.y
+        )
 
-            vertical_difference = (
-                thumb_ip.y - thumb_tip.y
-            )
+        if vertical_difference > palm_size * 0.25:
+            return "THUMBS UP"
 
-            # Thumb points upward
-            if vertical_difference > palm_size * 0.25:
-                return "THUMBS UP"
+        if vertical_difference < -palm_size * 0.25:
+            return "THUMBS DOWN"
 
-            # Thumb points downward
-            if vertical_difference < -palm_size * 0.25:
-                return "THUMBS DOWN"
-
-        return "FIST"
+    return "FIST"
 
     return "UNKNOWN"
 
